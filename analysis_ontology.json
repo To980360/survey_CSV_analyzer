@@ -1,0 +1,31 @@
+{
+  "name": "Toya Analysis Ontology v2",
+  "core_principle": "Find the pattern. Search for what breaks it. Reconstruct why the data look that way. Only then model it.",
+  "core_rules": [
+    {"id":"G_SCHEMA_VALIDATION","title":"Schema is not truth","check":"Validate headers, value ranges, broken formulas, special codes and date encodings before analysis."},
+    {"id":"G_ROWS_NOT_UNITS","title":"Rows are not necessarily units","check":"Detect repeated measures, clusters, waves, periods, stages and IDs before treating observations as independent."},
+    {"id":"G_EXCEPTION_SEARCH","title":"Expected pattern to exception","check":"After finding a strong pattern, actively inspect observations that violate it."},
+    {"id":"G_DGP","title":"Reconstruct the data-generating process","check":"Infer protocol, selection rules, treatment timing, data provenance and latent constraints from observed structure."},
+    {"id":"G_STOP_RULE","title":"Can analyze is not should analyze","check":"Stop or simplify unstable models when events, units or variation are insufficient."},
+    {"id":"G_STRUCTURAL_MISSINGNESS","title":"Missingness may encode study design","check":"Check whether missingness varies by wave, period, treatment, stage or subgroup."},
+    {"id":"G_SCALE_BEFORE_MODEL","title":"Validate constructed scales","check":"For item batteries, inspect internal consistency and factor structure before using composite outcomes."},
+    {"id":"G_LARGE_N","title":"Large N changes interpretation","check":"Prioritize effect sizes, uncertainty, incremental value and out-of-sample validation over p-values."},
+    {"id":"G_GENERALIZATION","title":"Validation must match the target","check":"Choose random, temporal, group or country holdout based on where conclusions should generalize."},
+    {"id":"G_DATASET_BOUNDARY","title":"The dataset may not contain the full question","check":"Identify missing variables, external data opportunities and theory-driven derived variables."}
+  ],
+  "feature_rules": [
+    {"feature":"time_or_wave","detect_hints":["date","time","wave","period","year","stage"],"questions":["Is there temporal ordering?","Should validation respect time?"],"preferred_analyses":["sequence_check","missingness_pattern"],"cautions":["Do not random-split blindly when time matters."]},
+    {"feature":"repeated_or_clustered","detect_hints":["id","series","participant","respondent","country","wave","period","stage"],"questions":["What is the analytical unit?","Are rows independent?"],"preferred_analyses":["repeated_structure"],"cautions":["Row count can overstate effective sample size."]},
+    {"feature":"purchase_or_choice","detect_hints":["buy","purchase","choice","selected","conversion","wtp","price"],"questions":["Are outcomes rare?","Do stated and revealed behavior diverge?"],"preferred_analyses":["rare_event_check","exception_scan","group_compare"],"cautions":["Do not overfit rare outcomes or interpret association as causation."]},
+    {"feature":"item_battery","detect_hints":["q1","q2","q3","eaq1","eaq2","eaq3"],"questions":["Is this a scale?","Is internal consistency adequate?"],"preferred_analyses":["scale_reliability"],"cautions":["Validate scale quality before outcome modeling."]}
+  ],
+  "interpretation_rules": [
+    "Do not invent numbers.",
+    "Association is not causation.",
+    "Separate statistical significance from substantive importance.",
+    "Report rare-event counts before model implications.",
+    "Distinguish row count from independent analytical-unit count.",
+    "Treat contradictions as potential evidence of hidden mechanisms or protocol rules.",
+    "End with the most decision-relevant takeaway and at most two next analyses."
+  ]
+}
