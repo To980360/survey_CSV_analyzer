@@ -1,4 +1,7 @@
-import io, os, json, re
+import io
+import json
+import os
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -103,32 +106,37 @@ def cronbach_alpha(frame):
 
 
 def batteries(df):
-    g = {}
+    groups = {}
     for c in map(str, df.columns):
         m = re.match(r"^([A-Za-z_]+?)[_ -]?(\d+)$", c.strip())
         if m:
-            g.setdefault(m.group(1).lower(), []).append(c)
-    return {k: v for k, v in g.items() if len(v) >= 3}
+            groups.setdefault(m.group(1).lower(), []).append(c)
+    return {k: v for k, v in groups.items() if len(v) >= 3}
 
 
 def audit(df):
     flags, insights = [], []
+
     for c in df.columns:
         vals = df[c].astype(str)
-        n = vals.str.match(r"^#(NAME|VALUE|REF|DIV/0|N/A|NUM|NULL|SPILL|CALC)", case=False, na=False).sum()
+        n = vals.str.match(
+            r"^#(NAME|VALUE|REF|DIV/0|N/A|NUM|NULL|SPILL|CALC)",
+            case=False,
+            na=False,
+        ).sum()
         if n:
-            flags.append({"severity":"STOP","rule":"G_SCHEMA_VALIDATION","message":f"{c}: セルエラー候補 {int(n)}件"})
+            flags.append({"severity": "STOP", "rule": "G_SCHEMA_VALIDATION", "message": f"{c}: セルエラー候補 {int(n)}件"})
 
         num = pd.to_numeric(df[c], errors="coerce")
         if num.notna().mean() > .7:
             neg = num[num.isin(range(-9, 0))].value_counts().to_dict()
             if neg:
-                flags.append({"severity":"WARN","rule":"G_SCHEMA_VALIDATION","message":f"{c}: 特殊欠損コード候補 {neg}"})
+                flags.append({"severity": "WARN", "rule": "G_SCHEMA_VALIDATION", "message": f"{c}: 特殊欠損コード候補 {neg}"})
 
         if any(h in str(c).lower() for h in ["date", "time", "day"]):
             x = num.dropna()
             if len(x) and ((x > 20000) & (x < 70000)).mean() > .8:
-                flags.append({"severity":"WARN","rule":"G_SCHEMA_VALIDATION","message":f"{c}: Excel/Sheets日付シリアルの可能性"})
+                flags.append({"severity": "WARN", "rule": "G_SCHEMA_VALIDATION", "message": f"{c}: Excel/Sheets日付シリアルの可能性"})
 
     for c in df.columns:
         x = pd.to_numeric(df[c], errors="coerce").dropna()
@@ -136,41 +144,58 @@ def audit(df):
         if len(u) == 2 and u.issubset({0, 1}):
             rare = int(x.value_counts().min())
             if rare < 20:
-                flags.append({"severity":"WARN","rule":"G_STOP_RULE","message":f"{c}: 二値変数の少数側={rare}。多変量Logitは不安定になりやすい"})
+                flags.append({"severity": "WARN", "rule": "G_STOP_RULE", "message": f"{c}: 二値変数の少数側={rare}。多変量Logitは不安定になりやすい"})
 
     repeat = []
     for c in df.columns:
         s = df[c].dropna()
         if any(h in str(c).lower() for h in ["id", "series", "respondent", "participant", "country", "wave", "period", "stage"]):
             if 1 < s.nunique() < len(s) and s.duplicated().any():
-                repeat.append({"variable":str(c),"unique_n":int(s.nunique()),"rows":int(len(s))})
+                repeat.append({"variable": str(c), "unique_n": int(s.nunique()), "rows": int(len(s))})
     if repeat:
-        flags.append({"severity":"WARN","rule":"G_ROWS_NOT_UNITS","message":"反復/クラスタ候補あり。行数と独立unit数を分けて確認","details":repeat[:8]})
+        flags.append({
+            "severity": "WARN",
+            "rule": "G_ROWS_NOT_UNITS",
+            "message": "反復/クラスタ候補あり。行数と独立unit数を分けて確認",
+            "details": repeat[:8],
+        })
 
-    bs = []
-    for pfx, cols in batteries(df).items():
-        a = cronbach_alpha(df[cols])
-        bs.append({"prefix":pfx,"items":cols,"alpha":None if a is None else round(a,3)})
-        if a is not None and a < .6:
-            flags.append({"severity":"WARN","rule":"G_SCALE_BEFORE_MODEL","message":f"{pfx}: Cronbach α={a:.3f} と低め"})
-    if bs:
-        insights.append({"scale_candidates":bs})
+    scale_candidates = []
+    for prefix, cols in batteries(df).items():
+        alpha = cronbach_alpha(df[cols])
+        scale_candidates.append({"prefix": prefix, "items": cols, "alpha": None if alpha is None else round(alpha, 3)})
+        if alpha is not None and alpha < .6:
+            flags.append({"severity": "WARN", "rule": "G_SCALE_BEFORE_MODEL", "message": f"{prefix}: Cronbach α={alpha:.3f} と低め"})
+    if scale_candidates:
+        insights.append({"scale_candidates": scale_candidates})
 
     if len(df) >= 10000:
-        flags.append({"severity":"WARN","rule":"G_LARGE_N","message":f"大標本 N={len(df):,}。p値より効果量・検証を優先"})
+        flags.append({"severity": "WARN", "rule": "G_LARGE_N", "message": f"大標本 N={len(df):,}。p値より効果量・検証を優先"})
 
     status = "STOP" if any(f["severity"] == "STOP" for f in flags) else ("WARN" if flags else "GO")
-    return {"status":status,"flags":flags,"insights":insights,"row_n":len(df)}
+    return {"status": status, "flags": flags, "insights": insights, "row_n": len(df)}
 
 
 def compact_context(df, p, a):
-    vars_ = []
+    variables = []
     for _, r in p.iterrows():
         c = r["variable"]
         s = df[c].dropna()
         examples = [] if r["type"] == "text" else [str(x)[:60] for x in s.astype(str).value_counts().head(4).index]
-        vars_.append({"name":c,"type":r["type"],"missing_pct":r["missing_pct"],"unique_n":int(r["unique_n"]),"examples":examples})
-    return {"rows":len(df),"columns":len(df.columns),"variables":vars_,"audit":a,"ontology":ONTOLOGY["core_rules"]}
+        variables.append({
+            "name": c,
+            "type": r["type"],
+            "missing_pct": r["missing_pct"],
+            "unique_n": int(r["unique_n"]),
+            "examples": examples,
+        })
+    return {
+        "rows": len(df),
+        "columns": len(df.columns),
+        "variables": variables,
+        "audit": a,
+        "ontology": ONTOLOGY["core_rules"],
+    }
 
 
 def ask_llm(client, model, question, context):
@@ -194,8 +219,12 @@ Secondary cautions only.
 If rare outcomes, repeated units, weak scales, structural missingness, or schema issues matter, make them first-class findings.
 Do not ask the user to send the full dataset again."""
     payload = {"question": question, "dataset_context": context}
-    r = client.responses.create(model=model, instructions=instructions, input=json.dumps(payload, ensure_ascii=False))
-    return r.output_text
+    response = client.responses.create(
+        model=model,
+        instructions=instructions,
+        input=json.dumps(payload, ensure_ascii=False),
+    )
+    return response.output_text
 
 
 def ask_alternative(client, model, question, context, first_answer):
@@ -215,8 +244,12 @@ Use these sections exactly:
         "dataset_context": context,
         "first_analysis": first_answer,
     }
-    r = client.responses.create(model=model, instructions=instructions, input=json.dumps(payload, ensure_ascii=False))
-    return r.output_text
+    response = client.responses.create(
+        model=model,
+        instructions=instructions,
+        input=json.dumps(payload, ensure_ascii=False),
+    )
+    return response.output_text
 
 
 def build_handoff_prompt(question, analysis, alternative=None):
@@ -251,8 +284,8 @@ def build_handoff_prompt(question, analysis, alternative=None):
 
 
 def status_html(status):
-    cls = {"GO":"status-go","WARN":"status-warn","STOP":"status-stop"}[status]
-    label = {"GO":"GO · 分析可能","WARN":"WARN · 要確認","STOP":"STOP · 先に修正"}[status]
+    cls = {"GO": "status-go", "WARN": "status-warn", "STOP": "status-stop"}[status]
+    label = {"GO": "GO · 分析可能", "WARN": "WARN · 要確認", "STOP": "STOP · 先に修正"}[status]
     return f'<span class="status {cls}">{label}</span>'
 
 
@@ -265,6 +298,9 @@ for key in ["analysis_result", "analysis_question", "alternative_result"]:
     if key not in st.session_state:
         st.session_state[key] = ""
 
+api_key = secret("OPENAI_API_KEY", "")
+model = secret("OPENAI_MODEL", "gpt-5-mini")
+
 st.markdown("""
 <div class="hero">
   <div class="hero-kicker">Survey CSV Analyzer · Beta</div>
@@ -273,21 +309,18 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-with st.sidebar:
-    st.markdown("### 設定")
-    api_key = secret("OPENAI_API_KEY", "")
-    if api_key:
-        st.success("API接続済み")
-    else:
-        api_key = st.text_input("OpenAI API Key", type="password")
-    model = st.text_input("Model", value=secret("OPENAI_MODEL", "gpt-5-mini"))
-    st.markdown("---")
-    st.caption("CSV/Excel全文はLLMへ送信しません。列名・型・欠損率・少数のカテゴリ例・監査結果のみ送信します。")
+if not api_key:
+    st.error("現在AI分析機能を利用できません。管理者がAPI設定を確認する必要があります。")
+    st.stop()
 
 st.markdown('<div class="section-label">01 · Upload</div>', unsafe_allow_html=True)
-uploaded = st.file_uploader("分析するCSV / Excelをアップロード", type=["csv","xlsx","xls"])
+uploaded = st.file_uploader("分析するCSV / Excelをアップロード", type=["csv", "xlsx", "xls"])
 if not uploaded:
-    st.markdown('<div class="panel"><b>まずデータを1つアップロードしてください。</b><div class="small-note" style="margin-top:8px">アップロード後、Preflight Audit → 分析相談の順に進みます。</div></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="panel"><b>まずデータを1つアップロードしてください。</b>'
+        '<div class="small-note" style="margin-top:8px">アップロード後、Preflight Audit → 分析相談の順に進みます。</div></div>',
+        unsafe_allow_html=True,
+    )
     st.stop()
 
 sheet = None
@@ -301,45 +334,75 @@ a = audit(df)
 context = compact_context(df, p, a)
 
 st.markdown('<div class="section-label">02 · Data health</div>', unsafe_allow_html=True)
-c1,c2,c3,c4 = st.columns([1,1,1,1.15])
+c1, c2, c3, c4 = st.columns([1, 1, 1, 1.15])
 c1.metric("行数", f"{len(df):,}")
 c2.metric("変数数", f"{len(df.columns):,}")
 c3.metric("欠損あり変数", int((p["missing_pct"] > 0).sum()))
 with c4:
-    st.markdown(f'<div style="padding:10px 0 0 4px"><div style="font-size:12px;color:#6b7280;margin-bottom:8px">PREFLIGHT</div>{status_html(a["status"])}</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="padding:10px 0 0 4px"><div style="font-size:12px;color:#6b7280;margin-bottom:8px">PREFLIGHT</div>{status_html(a["status"])}</div>',
+        unsafe_allow_html=True,
+    )
 
-tab1,tab2,tab3 = st.tabs(["概要","データ品質","変数プロファイル"])
+tab1, tab2, tab3 = st.tabs(["概要", "データ品質", "変数プロファイル"])
 with tab1:
     if a["status"] == "GO":
-        st.markdown('<div class="panel"><b>重大な構造問題は自動検出されませんでした。</b><div class="small-note" style="margin-top:8px">ただし「検出されない＝問題がない」ではありません。分析前に問いと観測単位を確認してください。</div></div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="panel"><b>重大な構造問題は自動検出されませんでした。</b>'
+            '<div class="small-note" style="margin-top:8px">ただし「検出されない＝問題がない」ではありません。分析前に問いと観測単位を確認してください。</div></div>',
+            unsafe_allow_html=True,
+        )
     else:
         n_stop = sum(f["severity"] == "STOP" for f in a["flags"])
         n_warn = sum(f["severity"] == "WARN" for f in a["flags"])
-        st.markdown(f'<div class="panel"><b>分析前に確認したいポイントがあります。</b><div class="small-note" style="margin-top:8px">STOP {n_stop}件 / WARN {n_warn}件。重要度の高いものから確認してください。</div></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="panel"><b>分析前に確認したいポイントがあります。</b>'
+            f'<div class="small-note" style="margin-top:8px">STOP {n_stop}件 / WARN {n_warn}件。重要度の高いものから確認してください。</div></div>',
+            unsafe_allow_html=True,
+        )
+
 with tab2:
     if not a["flags"]:
         st.success("自動監査で重大な警告は検出されませんでした。")
     for f in a["flags"]:
         st.markdown(flag_html(f), unsafe_allow_html=True)
-    st.download_button("監査結果JSONを保存", json.dumps({"audit":a,"profile":p.to_dict("records")}, ensure_ascii=False, indent=2), "survey_analyzer_preflight.json", "application/json")
+    st.download_button(
+        "監査結果JSONを保存",
+        json.dumps({"audit": a, "profile": p.to_dict("records")}, ensure_ascii=False, indent=2),
+        "survey_analyzer_preflight.json",
+        "application/json",
+    )
+
 with tab3:
-    st.dataframe(p, use_container_width=True, hide_index=True, column_config={
-        "variable":"変数",
-        "type":"推定型",
-        "valid_n":st.column_config.NumberColumn("有効N"),
-        "missing_pct":st.column_config.ProgressColumn("欠損率", min_value=0, max_value=100, format="%.1f%%"),
-        "unique_n":st.column_config.NumberColumn("ユニーク数"),
-    })
+    st.dataframe(
+        p,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "variable": "変数",
+            "type": "推定型",
+            "valid_n": st.column_config.NumberColumn("有効N"),
+            "missing_pct": st.column_config.ProgressColumn("欠損率", min_value=0, max_value=100, format="%.1f%%"),
+            "unique_n": st.column_config.NumberColumn("ユニーク数"),
+        },
+    )
 
 st.markdown('<div class="section-label">03 · Ask the analyzer</div>', unsafe_allow_html=True)
-st.markdown('<div class="panel"><b>このデータで何を知りたいですか？</b><div class="small-note" style="margin-top:6px">迷ったら「このデータを自分なら最初にどう見るべき？」でOKです。</div></div>', unsafe_allow_html=True)
-q = st.text_area("分析したいこと", label_visibility="collapsed", placeholder="例：このデータを自分なら最初にどう見るべき？", height=110)
+st.markdown(
+    '<div class="panel"><b>このデータで何を知りたいですか？</b>'
+    '<div class="small-note" style="margin-top:6px">迷ったら「このデータを自分なら最初にどう見るべき？」でOKです。</div></div>',
+    unsafe_allow_html=True,
+)
+q = st.text_area(
+    "分析したいこと",
+    label_visibility="collapsed",
+    placeholder="例：このデータを自分なら最初にどう見るべき？",
+    height=110,
+)
 
 if st.button("分析計画を作る →", type="primary", use_container_width=True):
     if not q.strip():
         st.warning("質問を入力してください")
-    elif not api_key:
-        st.warning("OpenAI API Keyを設定してください")
     else:
         with st.spinner("データ構造を読み、分析計画を組み立てています…"):
             try:
@@ -350,9 +413,9 @@ if st.button("分析計画を作る →", type="primary", use_container_width=Tr
             except Exception as e:
                 msg = str(e)
                 if "insufficient_quota" in msg or "429" in msg:
-                    st.error("OpenAI APIの利用枠が不足しています。Platform側のBilling / Usageを確認してください。")
+                    st.error("AI分析機能の利用枠に達しています。しばらくしてから再度お試しください。")
                 else:
-                    st.error(f"エラー: {e}")
+                    st.error("分析の生成中にエラーが発生しました。もう一度お試しください。")
 
 if st.session_state.analysis_result:
     st.markdown('<div class="section-label">04 · Analysis brief</div>', unsafe_allow_html=True)
@@ -361,7 +424,11 @@ if st.session_state.analysis_result:
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="section-label">05 · Next action</div>', unsafe_allow_html=True)
-    st.markdown('<div class="action-card"><b>ここから先は、普段使っているAIで分析を続けられます。</b><div class="small-note" style="margin-top:7px">下のプロンプトをコピーし、元のCSV / Excelと一緒にChatGPT・Claudeなどへ渡してください。</div></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="action-card"><b>ここから先は、普段使っているAIで分析を続けられます。</b>'
+        '<div class="small-note" style="margin-top:7px">下のプロンプトをコピーし、元のCSV / Excelと一緒にChatGPT・Claudeなどへ渡してください。</div></div>',
+        unsafe_allow_html=True,
+    )
 
     handoff = build_handoff_prompt(
         st.session_state.analysis_question,
@@ -373,28 +440,25 @@ if st.session_state.analysis_result:
     st.caption("コードブロック右上のコピーアイコンから、そのままコピーできます。")
 
     st.markdown("#### 🔄 別の切り口でも考える")
-    st.caption("最初の回答で主軸にしなかった仮説・例外・意思決定の観点から、もう1つ分析方針を作ります。※追加でAPIを1回使用します。")
+    st.caption("最初の回答で主軸にしなかった仮説・例外・意思決定の観点から、もう1つ分析方針を作ります。")
     if st.button("別の切り口を生成する", use_container_width=True):
-        if not api_key:
-            st.warning("OpenAI API Keyを設定してください")
-        else:
-            with st.spinner("別の分析切り口を探しています…"):
-                try:
-                    alt = ask_alternative(
-                        OpenAI(api_key=api_key),
-                        model,
-                        st.session_state.analysis_question,
-                        context,
-                        st.session_state.analysis_result,
-                    )
-                    st.session_state.alternative_result = alt
-                    st.rerun()
-                except Exception as e:
-                    msg = str(e)
-                    if "insufficient_quota" in msg or "429" in msg:
-                        st.error("OpenAI APIの利用枠が不足しています。Platform側のBilling / Usageを確認してください。")
-                    else:
-                        st.error(f"エラー: {e}")
+        with st.spinner("別の分析切り口を探しています…"):
+            try:
+                alt = ask_alternative(
+                    OpenAI(api_key=api_key),
+                    model,
+                    st.session_state.analysis_question,
+                    context,
+                    st.session_state.analysis_result,
+                )
+                st.session_state.alternative_result = alt
+                st.rerun()
+            except Exception as e:
+                msg = str(e)
+                if "insufficient_quota" in msg or "429" in msg:
+                    st.error("AI分析機能の利用枠に達しています。しばらくしてから再度お試しください。")
+                else:
+                    st.error("別の切り口の生成中にエラーが発生しました。もう一度お試しください。")
 
     if st.session_state.alternative_result:
         st.markdown('<div class="answer-shell">', unsafe_allow_html=True)
@@ -403,4 +467,8 @@ if st.session_state.analysis_result:
         st.success("AI分析用プロンプトにも、この別切り口を自動で追加しました。")
 
 st.markdown("---")
-st.markdown('<div class="small-note" style="text-align:center">Survey CSV Analyzer v5 · Toya Analysis Ontology v2<br>Find the pattern. Search for what breaks it. Reconstruct why the data look that way. Only then model it.</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="small-note" style="text-align:center">Survey CSV Analyzer v5 · Toya Analysis Ontology v2<br>'
+    'Find the pattern. Search for what breaks it. Reconstruct why the data look that way. Only then model it.</div>',
+    unsafe_allow_html=True,
+)
