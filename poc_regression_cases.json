@@ -1,0 +1,48 @@
+[
+  {
+    "poc": 1,
+    "name": "マンション配布候補",
+    "must_notice": ["nonstandard table structure","observed choice vs simple ranking","exceptions among high-value candidates"],
+    "must_not_claim": ["current selection is mathematically optimal","region causes selection"],
+    "ontology": ["R_PATTERN_EXCEPTION","F_OBSERVED_CHOICE_CONSTRAINT","G_SCHEMA_VALIDATION"]
+  },
+  {
+    "poc": 2,
+    "name": "World Values Survey",
+    "must_notice": ["special missing codes","country/wave clustering","large N","generalization target"],
+    "must_not_claim": ["p<.001 means practically important","random row split proves transportability to unseen countries"],
+    "ontology": ["G_SCHEMA_VALIDATION","G_ROWS_NOT_UNITS","G_LARGE_N","F_LARGE_N_GENERALIZATION"]
+  },
+  {
+    "poc": 3,
+    "name": "生育記録",
+    "must_notice": ["repeated series/part trajectories","date serial","stage/date contradiction","external temperature opportunity"],
+    "must_not_claim": ["52 rows means 52 independent units","Container 3 effect is identified from one unit"],
+    "ontology": ["G_ROWS_NOT_UNITS","F_TIME_SEQUENCE","R_DATASET_BOUNDARY"]
+  },
+  {
+    "poc": 4,
+    "name": "里山の価値",
+    "must_notice": ["composite scales","reliability","small events per predictor","multiple tests","aggregate vs activity components"],
+    "must_not_claim": ["all composites are equally reliable","every significant item-logit coefficient is robust"],
+    "ontology": ["G_SCALE_BEFORE_MODEL","G_RARE_OUTCOME","G_MULTIPLE_TESTING","G_AGGREGATE_COMPONENTS"]
+  },
+  {
+    "poc": 5,
+    "name": "ラオス昆虫食本調査",
+    "must_notice": ["stated-revealed gap","rare purchase events","trial structural missingness","period/price/trial design","EAQ battery","salary provenance"],
+    "must_not_claim": ["stated WTP equals demand","tasting association is automatically causal","trial subset automatically generalizes to all respondents"],
+    "ontology": ["F_STATED_REVEALED","G_RARE_OUTCOME","G_STRUCTURAL_MISSINGNESS","F_TREATMENT_SELECTION","F_SCALE_ITEMS","F_EXTERNAL_DERIVED"]
+  },
+  {
+    "id": "poc_mcphone_routing_evidence_gate",
+    "description": "Survey export with unique respondent ID, screening-driven block missingness, and paired FA free-text fields.",
+    "expected": [
+      "Do not infer schema collapse when raw columns are named and non-duplicated.",
+      "Mark one-row-per-unit as provisionally supported when a full-row unique ID exists and no repeat structure is detected.",
+      "Detect repeated missingness signatures as routing/eligibility evidence.",
+      "Detect paired FA/free-text conditional response patterns.",
+      "Report raw N separately from candidate effective N; do not hard-code questionnaire code meanings."
+    ]
+  }
+]
